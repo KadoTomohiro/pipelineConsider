@@ -1,109 +1,156 @@
-import {BehaviorSubject, Observable, OperatorFunction, switchMap} from "rxjs";
+import {filter, map, Observable, of, OperatorFunction, pipe} from "rxjs";
 
-type DefaultOutlet<T> = {
-  default: T
-}
+type Optinoable<T extends undefined | unknown = undefined> = T extends undefined ? undefined : T;
 
-type ObservablePropertyName = `${string}$`
+type OutletPattern = {[key: `${string}$`]: unknown};
 
-type OperatorFunctionArray<T, O extends Outlet> = [
-  OperatorFunction<T | null, O[keyof O]>,
-] | [
-  OperatorFunction<T | null, unknown>,
-  OperatorFunction<unknown, O[keyof O]>
-] | [
-  OperatorFunction<T | null, unknown>,
-  ...OperatorFunction<unknown, unknown>[],
-  OperatorFunction<unknown, O[keyof O]>
-]
+// type Outlets<T extends undefined | OutletPattern = undefined> = T extends OutletPattern ? {
+//   [K in keyof T]: Observable<T[K]>
+// } : undefined
 
-export type Outlet = {
-  [key: ObservablePropertyName]: unknown
-}
+type Outlets<T = undefined> = Optinoable<{
+  [K in keyof T]: Observable<T[K]>
+}>
 
-/** 特定の型のデータを、Observableストリームとして保持する。 */
-export class Pipeline<T, O extends Outlet> {
+// type OutletOptions<T, O extends undefined | OutletPattern = undefined> = O extends OutletPattern ? {[key in keyof O]: OperatorFunction<T | null, O[key]>} : undefined
+type OutletOptions<T, O = undefined> = Optinoable< {[key in keyof O]: OperatorFunction<T | null, O[key]>}>;
 
-  /** データを保持するSubject */
-  private _storeSource: BehaviorSubject<T | null>;
-  /** データを配信するストリーム */
-  public store$: Observable<T | null>;
+export class Pipeline<T, O extends OutletPattern | undefined = undefined> {
+  outlets: {default$: Observable<T | null> } & Outlets<O>;
 
-
-  outlets:
-    Readonly<{default$: Observable<T | null>} & {[key in keyof O]: Observable<O[key]>}>;
-  constructor(
-    initialValue: T | null = null,
-    private outsideStore$?: Observable<T | null>,
-    outlets?:  {[key in keyof O]: OperatorFunctionArray<T, O>}
-  ) {
-    this._storeSource = new BehaviorSubject<T | null>(initialValue);
-    this.store$ = this._storeSource.asObservable();
-    this.outsideStore$?.subscribe(this._storeSource);
-
-    if (outlets) {
-      const optionalOutlets: {[key in keyof O]?: Observable<O[key]>} = {}
-    }
-
-    // outletと同じキーを持ち、値がObservableであるプロパティを持つオブジェクトを作成する
-    Object.keys(outlets).forEach((key: keyof O) => {
-      const outlet = outlets[key];
-      const outlet$ = this.store$.pipe(
-        ...outlet
-      );
-      optionalOutlets[key] = outlet$;
-    }
-
-
-    this.outlets = {
-      default$: this.store$
-    }
-
+  constructor(initialData: T,
+              options: {
+                outlets: OutletOptions<T, O>
+              }) {
   }
 
-  /**
-   * データを更新する
-   */
-  public update(data: T) {
-    this._storeSource.next(data);
+  addInlet<T>(key: string, inlet: Observable<T>): void {
   }
 
-  /**
-   * 現在のデータを同期的に取得する
-   */
-  public get(): T | null {
-    return this._storeSource.getValue();
+  destroy(): void {
   }
 
-  getInitial(name: string | undefined): string {
-    if (this.isString(name)) {
-      // undefinedの場合は処理がここまで進まないので、nameは確実にstringであるといえる
-      return name.substr(1);
-    }
-    return ''
+  get(): T | null {
+    return undefined;
   }
 
-
-  isString(arg: string | number | undefined): arg is string {
-    return typeof arg === 'number';
+  removeInlet(key: string): void {
   }
 
-  /**
-   * 現在のデータを非同期的に取得する
-   */
-  public getAsync(): Observable<T | null> {
-    return this.store$;
+  reset(): void {
   }
 
-  /**
-   * データを削除する
-   */
-  public delete() {
-    this._storeSource.next(null);
-  }
-
-  mapToObsebavle(obj, fn) {
-    Object.fromEntries(Object.entries(obj).map(fn));
+  update(data: T): void {
   }
 
 }
+
+// import {BehaviorSubject, Observable, OperatorFunction, switchMap} from "rxjs";
+//
+// type DefaultOutlet<T> = {
+//   default: T
+// }
+//
+// type ObservablePropertyName = `${string}$`
+//
+// type OperatorFunctionArray<T, O extends Outlet> = [
+//   OperatorFunction<T | null, O[keyof O]>,
+// ] | [
+//   OperatorFunction<T | null, unknown>,
+//   OperatorFunction<unknown, O[keyof O]>
+// ] | [
+//   OperatorFunction<T | null, unknown>,
+//   ...OperatorFunction<unknown, unknown>[],
+//   OperatorFunction<unknown, O[keyof O]>
+// ]
+//
+// export type Outlet = {
+//   [key: ObservablePropertyName]: unknown
+// }
+//
+// /** 特定の型のデータを、Observableストリームとして保持する。 */
+// export class Pipeline<T, O extends Outlet> {
+//
+//   /** データを保持するSubject */
+//   private _storeSource: BehaviorSubject<T | null>;
+//   /** データを配信するストリーム */
+//   public store$: Observable<T | null>;
+//
+//
+//   outlets:
+//     Readonly<{default$: Observable<T | null>} & {[key in keyof O]: Observable<O[key]>}>;
+//   constructor(
+//     initialValue: T | null = null,
+//     private outsideStore$?: Observable<T | null>,
+//     outlets?:  {[key in keyof O]: OperatorFunctionArray<T, O>}
+//   ) {
+//     this._storeSource = new BehaviorSubject<T | null>(initialValue);
+//     this.store$ = this._storeSource.asObservable();
+//     this.outsideStore$?.subscribe(this._storeSource);
+//
+//     if (outlets) {
+//       const optionalOutlets: {[key in keyof O]?: Observable<O[key]>} = {}
+//     }
+//
+//     // outletと同じキーを持ち、値がObservableであるプロパティを持つオブジェクトを作成する
+//     Object.keys(outlets).forEach((key: keyof O) => {
+//       const outlet = outlets[key];
+//       const outlet$ = this.store$.pipe(
+//         ...outlet
+//       );
+//       optionalOutlets[key] = outlet$;
+//     }
+//
+//
+//     this.outlets = {
+//       default$: this.store$
+//     }
+//
+//   }
+//
+//   /**
+//    * データを更新する
+//    */
+//   public update(data: T) {
+//     this._storeSource.next(data);
+//   }
+//
+//   /**
+//    * 現在のデータを同期的に取得する
+//    */
+//   public get(): T | null {
+//     return this._storeSource.getValue();
+//   }
+//
+//   getInitial(name: string | undefined): string {
+//     if (this.isString(name)) {
+//       // undefinedの場合は処理がここまで進まないので、nameは確実にstringであるといえる
+//       return name.substr(1);
+//     }
+//     return ''
+//   }
+//
+//
+//   isString(arg: string | number | undefined): arg is string {
+//     return typeof arg === 'number';
+//   }
+//
+//   /**
+//    * 現在のデータを非同期的に取得する
+//    */
+//   public getAsync(): Observable<T | null> {
+//     return this.store$;
+//   }
+//
+//   /**
+//    * データを削除する
+//    */
+//   public delete() {
+//     this._storeSource.next(null);
+//   }
+//
+//   mapToObsebavle(obj, fn) {
+//     Object.fromEntries(Object.entries(obj).map(fn));
+//   }
+//
+// }
