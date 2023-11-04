@@ -1,156 +1,143 @@
-import {filter, map, Observable, of, OperatorFunction, pipe} from "rxjs";
+import {BehaviorSubject, Observable, Observer, OperatorFunction, Subscription, take, tap,} from "rxjs";
 
-type Optinoable<T extends undefined | unknown = undefined> = T extends undefined ? undefined : T;
+type OutletPattern = {[key: string]: unknown};
 
-type OutletPattern = {[key: `${string}$`]: unknown};
+type Outlets<T extends undefined | OutletPattern = undefined> = T extends OutletPattern ? {
+  [K in keyof T ]: Observable<T[K]>
+}  :  undefined
 
-// type Outlets<T extends undefined | OutletPattern = undefined> = T extends OutletPattern ? {
-//   [K in keyof T]: Observable<T[K]>
-// } : undefined
+type OutletOptions<T, O extends undefined | OutletPattern = undefined> = O extends OutletPattern ? {[key in keyof O]: OperatorFunction<T | null, O[key]>} : undefined
 
-type Outlets<T = undefined> = Optinoable<{
-  [K in keyof T]: Observable<T[K]>
-}>
+type DefaultSnapShot<T> = { default: T | null }
+type DefaultOutlet<T> = Outlets<DefaultSnapShot<T>>
 
-// type OutletOptions<T, O extends undefined | OutletPattern = undefined> = O extends OutletPattern ? {[key in keyof O]: OperatorFunction<T | null, O[key]>} : undefined
-type OutletOptions<T, O = undefined> = Optinoable< {[key in keyof O]: OperatorFunction<T | null, O[key]>}>;
 
 export class Pipeline<T, O extends OutletPattern | undefined = undefined> {
-  outlets: {default$: Observable<T | null> } & Outlets<O>;
 
-  constructor(initialData: T,
-              options: {
-                outlets: OutletOptions<T, O>
-              }) {
+  /**
+   * 初期データ。リセット時に使用する。
+   * @private
+   */
+  private readonly initialData: T | null;
+
+  /** 各アウトレットのスナップショットデータを保持するオブジェクト */
+  private snapshotStock = {} as DefaultSnapShot<T> & O;
+  /** データを保持するSubject */
+  private _storeSource: BehaviorSubject<T | null>;
+  /** データを配信するストリーム */
+  public store$: Observable<T | null>;
+
+  /** インレットの購読を保持するオブジェクト */
+  private inletSubscriptions: Record<string, Subscription> = {};
+
+  /**
+   * 各アウトレットのストリームを保持するオブジェクト
+   */
+  public outlets: DefaultOutlet<T> & Outlets<O>;
+  /**
+   * 各アウトレットのスナップショットを保持するオブジェクト
+   */
+  public snapshot: DefaultSnapShot<T> & O = new Proxy(this.snapshotStock, {
+    get: (target, property: string, receiver) => {
+      if (property in target) {
+        return target[property];
+      } else {
+        return undefined
+      }
+    }
+  });
+  /**
+   * 各アウトレットのストリームを一度だけ購読するためのオブジェクト
+   */
+  public oneTimeOutlets: DefaultOutlet<T> & Outlets<O>;
+
+  constructor(
+    options: { initialData?: T | null, outlets?: OutletOptions<T, O> }
+  ) {
+    this.initialData = options.initialData ?? null;
+    this._storeSource = new BehaviorSubject<T | null>(options.initialData ?? null);
+    this.store$ = this._storeSource.asObservable();
+
+    if (options.outlets) {
+      this.outlets = {} as typeof this.outlets;
+      const outlets = options.outlets;
+      const outletKeys:  string[] = Object.keys(options.outlets)
+
+      outletKeys.forEach(key => {
+        const outlet = outlets[key];
+        this.outlets[key] = this.store$.pipe(
+          outlet,
+          tap(value => {
+            this.snapshotStock[key] = value;
+          })
+        );
+      })
+      this.outlets.default = this.store$.pipe(
+        tap(value => {
+            this.snapshotStock.default = value;
+          }
+        ));
+    } else {
+      this.outlets = undefined as unknown as typeof this.outlets;
+    }
+
+    this.oneTimeOutlets = new Proxy(this.outlets, {
+      get: (target, property: string, receiver) => {
+        if (property in target) {
+          return target[property].pipe(take(1));
+        } else {
+          return undefined
+        }
+      }
+    })
   }
 
-  addInlet<T>(key: string, inlet: Observable<T>): void {
+
+  /**
+   * インレットを追加する
+   * @param key インレットのキー
+   * @param inlet インレットのストリーム
+   * @param connectionType インレットの接続タイプ。接続するObsreverメソッドを指定する。省略した場合はnextのみ接続する。
+   */
+  addInlet(key: string, inlet: Observable<T | null>, connectionType: { [key in keyof Observer<unknown>]: boolean } = {next: true, error: false, complete: false}): void {
+    const entries = Object.keys(connectionType)
+      .filter((key): key is keyof Observer<unknown> => connectionType[key as keyof Observer<unknown>])
+      .map((key) => {
+        return [key, this._storeSource[key].bind(this._storeSource)]
+      });
+    const observer = Object.fromEntries(entries)
+    this.inletSubscriptions[key] = inlet.subscribe(observer);
   }
 
+  /**
+   *
+   */
   destroy(): void {
+    Object.values(this.inletSubscriptions)
+      .forEach(subscription => subscription.unsubscribe());
   }
 
-  get(): T | null {
-    return undefined;
-  }
-
+  /**
+   * インレットを削除する
+   * @param key インレットのキー
+   */
   removeInlet(key: string): void {
+    this.inletSubscriptions[key].unsubscribe();
   }
 
-  reset(): void {
+  /**
+   * パイプラインをリセットする
+   * @param resetData リセット時に使用するデータ。省略した場合は初期データが使用される。
+   */
+  reset(resetData?: T): void {
+    this._storeSource.next(resetData ?? this.initialData);
   }
 
+  /**
+   * パイプラインのデータを更新する
+   * @param data 更新するデータ
+   */
   update(data: T): void {
+    this._storeSource.next(data);
   }
-
 }
-
-// import {BehaviorSubject, Observable, OperatorFunction, switchMap} from "rxjs";
-//
-// type DefaultOutlet<T> = {
-//   default: T
-// }
-//
-// type ObservablePropertyName = `${string}$`
-//
-// type OperatorFunctionArray<T, O extends Outlet> = [
-//   OperatorFunction<T | null, O[keyof O]>,
-// ] | [
-//   OperatorFunction<T | null, unknown>,
-//   OperatorFunction<unknown, O[keyof O]>
-// ] | [
-//   OperatorFunction<T | null, unknown>,
-//   ...OperatorFunction<unknown, unknown>[],
-//   OperatorFunction<unknown, O[keyof O]>
-// ]
-//
-// export type Outlet = {
-//   [key: ObservablePropertyName]: unknown
-// }
-//
-// /** 特定の型のデータを、Observableストリームとして保持する。 */
-// export class Pipeline<T, O extends Outlet> {
-//
-//   /** データを保持するSubject */
-//   private _storeSource: BehaviorSubject<T | null>;
-//   /** データを配信するストリーム */
-//   public store$: Observable<T | null>;
-//
-//
-//   outlets:
-//     Readonly<{default$: Observable<T | null>} & {[key in keyof O]: Observable<O[key]>}>;
-//   constructor(
-//     initialValue: T | null = null,
-//     private outsideStore$?: Observable<T | null>,
-//     outlets?:  {[key in keyof O]: OperatorFunctionArray<T, O>}
-//   ) {
-//     this._storeSource = new BehaviorSubject<T | null>(initialValue);
-//     this.store$ = this._storeSource.asObservable();
-//     this.outsideStore$?.subscribe(this._storeSource);
-//
-//     if (outlets) {
-//       const optionalOutlets: {[key in keyof O]?: Observable<O[key]>} = {}
-//     }
-//
-//     // outletと同じキーを持ち、値がObservableであるプロパティを持つオブジェクトを作成する
-//     Object.keys(outlets).forEach((key: keyof O) => {
-//       const outlet = outlets[key];
-//       const outlet$ = this.store$.pipe(
-//         ...outlet
-//       );
-//       optionalOutlets[key] = outlet$;
-//     }
-//
-//
-//     this.outlets = {
-//       default$: this.store$
-//     }
-//
-//   }
-//
-//   /**
-//    * データを更新する
-//    */
-//   public update(data: T) {
-//     this._storeSource.next(data);
-//   }
-//
-//   /**
-//    * 現在のデータを同期的に取得する
-//    */
-//   public get(): T | null {
-//     return this._storeSource.getValue();
-//   }
-//
-//   getInitial(name: string | undefined): string {
-//     if (this.isString(name)) {
-//       // undefinedの場合は処理がここまで進まないので、nameは確実にstringであるといえる
-//       return name.substr(1);
-//     }
-//     return ''
-//   }
-//
-//
-//   isString(arg: string | number | undefined): arg is string {
-//     return typeof arg === 'number';
-//   }
-//
-//   /**
-//    * 現在のデータを非同期的に取得する
-//    */
-//   public getAsync(): Observable<T | null> {
-//     return this.store$;
-//   }
-//
-//   /**
-//    * データを削除する
-//    */
-//   public delete() {
-//     this._storeSource.next(null);
-//   }
-//
-//   mapToObsebavle(obj, fn) {
-//     Object.fromEntries(Object.entries(obj).map(fn));
-//   }
-//
-// }

@@ -1,6 +1,8 @@
 import { Component } from '@angular/core';
-import {from, map, Observable} from 'rxjs';
-import {Outlet, Pipeline} from "./pipeline/pipeline";
+import {StoreService} from "./store.service";
+import {HttpClient} from "@angular/common/http";
+import {from, interval, map, mergeMap, of, pipe, take, timeout, timer} from "rxjs";
+import {Pipeline} from "./pipeline/pipeline";
 
 @Component({
   selector: 'app-root',
@@ -10,17 +12,71 @@ import {Outlet, Pipeline} from "./pipeline/pipeline";
 export class AppComponent {
   title = 'pipelineConsider';
 
-  constructor() {
-    const pipeline: Pipeline<string, {initial$: string} > = new Pipeline<string, {initial$: string}>(null, undefined, {
-      initial$: [
-        map((s: string | null) => s + 'a'),
-      ],
+  pipeline: Pipeline<string, {foo: string, bar: number}>
+
+  constructor(
+    private store: StoreService,
+    private http: HttpClient
+  ) {
+    this.store.update('hello');
+    this.multiple()
+
+    this.pipeline = new Pipeline<string, {foo: string, bar: number}>({
+      initialData: 'hello',
+      outlets:{
+        foo: pipe(map((value: string | null) => value + ' world')),
+        bar: pipe(map((value: string | null) => value?.length ?? 0))
+      }
     })
 
-    pipeline.outlets.default$
+    const defaultValue = this.pipeline.snapshot.default;
+    const foo = this.pipeline.snapshot.foo;
+    const bar = this.pipeline.snapshot.bar;
 
-    const o: Outlet = {
-        initial$: from(['a', 'b', 'c']),
-    }
+    const default$ = this.pipeline.outlets.default;
+    const foo$ = this.pipeline.outlets.foo;
+    const bar$ = this.pipeline.outlets.bar;
+
+    this.pipeline.oneTimeOutlets.default.subscribe((value) => {
+      console.log('oneTime default')
+      console.log(value)
+    })
+
+    this.pipeline.outlets.default.subscribe((value) => {
+      console.log('outlets default')
+      console.log(value)
+    })
+
+  }
+
+  multiple() {
+    const multiplicandSource$ = from([1, 2, 3])
+    const multiplierSource$ = of(3)
+
+    multiplierSource$.pipe(
+      mergeMap(multiplier => {
+        return multiplicandSource$.pipe(
+          map(multiplicand => multiplicand * multiplier)
+        )
+      })
+    ).subscribe(console.log)
+  }
+
+  send() {
+    this.pipeline.update('Bonjour')
+  }
+
+  getValue() {
+    const currentValue = this.store.currentValue
+    console.log(currentValue)
+    this.store.update(currentValue+ ' world');
+  }
+
+  addInlet() {
+    const interval$ = interval(1000).pipe(
+      map((value) => value.toString()),
+      take(10)
+    )
+    this.pipeline.addInlet('foo', interval$, {next: true, error: false, complete: true})
   }
 }
