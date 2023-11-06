@@ -1,2 +1,2 @@
-export class Tank {
+export class Tank<T> {
 }

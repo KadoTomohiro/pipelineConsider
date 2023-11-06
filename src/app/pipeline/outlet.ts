@@ -1,20 +1,44 @@
-import {Observable, OperatorFunction, take, tap} from "rxjs";
+import {Observable, take, tap} from "rxjs";
+import {PipelineConnectionError} from './pipeline-connection-error';
 
-export class Outlet<I, O> {
+export class Outlet<T> {
 
-  stream: Observable<O>;
-  snapshot: O | undefined;
-  ontime: Observable<O>;
+  private _stream: Observable<T> | undefined
+  private _snapshot: T | undefined;
+  private _onTime: Observable<T> | undefined;
 
-  constructor(tank: Observable<I>, pipe: OperatorFunction<I, O>, ) {
-    this.stream = tank.pipe(
-      pipe,
-      tap(snapshot => this.snapshot = snapshot)
-    );
-    this.ontime = this.stream.pipe(
-      take(1)
-    );
+  get stream(): Observable<T> {
+    if (!this._stream) {
+      throw new PipelineConnectionError();
+    }
+    return this._stream;
+  }
+  get snapshot(): T {
+    if (!this._snapshot) {
+      throw new PipelineConnectionError();
+    }
+    return this._snapshot;
   }
 
+  get onTime(): Observable<T> {
+    if (!this._onTime) {
+      throw new PipelineConnectionError();
+    }
+    return this._onTime;
+  }
+
+  constructor(pipe?: Observable<T>) {
+    if (pipe) {
+      this.connectPipe(pipe);
+    }
+  }
+
+  connectPipe(pipe: Observable<T>): void {
+    this._stream = pipe.pipe(
+      tap(snapshot => this._snapshot = snapshot)
+    );
+    this._onTime = this._stream.pipe(
+        take(1)
+    );
   }
 }

@@ -7,7 +7,7 @@ import {InterceptorInterceptor} from "./interceptor.interceptor";
 
 @NgModule({
   declarations: [
-    AppComponent
+    AppComponent,
   ],
   imports: [
     BrowserModule,
