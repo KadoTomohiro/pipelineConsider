@@ -2,13 +2,13 @@ import {BehaviorSubject, Observable, Observer, OperatorFunction, Subscription, t
 
 type OutletPattern = {[key: string]: unknown};
 
-type Outlets<T extends undefined | OutletPattern = undefined> = T extends OutletPattern ? {
+type Outlets<T extends OutletPattern | undefined> = T extends OutletPattern ? {
   [K in keyof T ]: Observable<T[K]>
 }  :  undefined
 
-type OutletOptions<T, O extends undefined | OutletPattern = undefined> = O extends OutletPattern ? {[key in keyof O]: OperatorFunction<T | null, O[key]>} : undefined
+type OutletOptions<T, O extends OutletPattern | undefined> = O extends OutletPattern ? {[key in keyof O]: OperatorFunction<T, O[key]>} : undefined
 
-type DefaultSnapShot<T> = { default: T | null }
+type DefaultSnapShot<T> = { default: T }
 type DefaultOutlet<T> = Outlets<DefaultSnapShot<T>>
 
 
@@ -18,14 +18,12 @@ export class Pipeline<T, O extends OutletPattern | undefined = undefined> {
    * 初期データ。リセット時に使用する。
    * @private
    */
-  private readonly initialData: T | null;
+  private readonly initialData: T;
 
   /** 各アウトレットのスナップショットデータを保持するオブジェクト */
   private snapshotStock = {} as DefaultSnapShot<T> & O;
   /** データを保持するSubject */
-  private _storeSource: BehaviorSubject<T | null>;
-  /** データを配信するストリーム */
-  public store$: Observable<T | null>;
+  private readonly _storeSource: BehaviorSubject<T>;
 
   /** インレットの購読を保持するオブジェクト */
   private inletSubscriptions: Record<string, Subscription> = {};
@@ -38,7 +36,7 @@ export class Pipeline<T, O extends OutletPattern | undefined = undefined> {
    * 各アウトレットのスナップショットを保持するオブジェクト
    */
   public snapshot: DefaultSnapShot<T> & O = new Proxy(this.snapshotStock, {
-    get: (target, property: string, receiver) => {
+    get: (target, property: string) => {
       if (property in target) {
         return target[property];
       } else {
@@ -52,11 +50,11 @@ export class Pipeline<T, O extends OutletPattern | undefined = undefined> {
   public oneTimeOutlets: DefaultOutlet<T> & Outlets<O>;
 
   constructor(
-    options: { initialData?: T | null, outlets?: OutletOptions<T, O> }
+    initialData: T,
+    options: { outlets?: OutletOptions<T, O> }
   ) {
-    this.initialData = options.initialData ?? null;
-    this._storeSource = new BehaviorSubject<T | null>(options.initialData ?? null);
-    this.store$ = this._storeSource.asObservable();
+    this.initialData = initialData;
+    this._storeSource = new BehaviorSubject<T>(this.initialData);
 
     if (options.outlets) {
       this.outlets = {} as typeof this.outlets;
@@ -65,14 +63,14 @@ export class Pipeline<T, O extends OutletPattern | undefined = undefined> {
 
       outletKeys.forEach(key => {
         const outlet = outlets[key];
-        this.outlets[key] = this.store$.pipe(
+        this.outlets[key] = this._storeSource.pipe(
           outlet,
           tap(value => {
             this.snapshotStock[key] = value;
           })
         );
       })
-      this.outlets.default = this.store$.pipe(
+      this.outlets.default = this._storeSource.pipe(
         tap(value => {
             this.snapshotStock.default = value;
           }
@@ -82,7 +80,7 @@ export class Pipeline<T, O extends OutletPattern | undefined = undefined> {
     }
 
     this.oneTimeOutlets = new Proxy(this.outlets, {
-      get: (target, property: string, receiver) => {
+      get: (target, property: string) => {
         if (property in target) {
           return target[property].pipe(take(1));
         } else {
@@ -99,7 +97,7 @@ export class Pipeline<T, O extends OutletPattern | undefined = undefined> {
    * @param inlet インレットのストリーム
    * @param connectionType インレットの接続タイプ。接続するObsreverメソッドを指定する。省略した場合はnextのみ接続する。
    */
-  addInlet(key: string, inlet: Observable<T | null>, connectionType: { [key in keyof Observer<unknown>]: boolean } = {next: true, error: false, complete: false}): void {
+  addInlet(key: string, inlet: Observable<T>, connectionType: { [key in keyof Observer<unknown>]: boolean } = {next: true, error: false, complete: false}): void {
     const entries = Object.keys(connectionType)
       .filter((key): key is keyof Observer<unknown> => connectionType[key as keyof Observer<unknown>])
       .map((key) => {
@@ -115,6 +113,7 @@ export class Pipeline<T, O extends OutletPattern | undefined = undefined> {
   destroy(): void {
     Object.values(this.inletSubscriptions)
       .forEach(subscription => subscription.unsubscribe());
+    this._storeSource.complete();
   }
 
   /**
@@ -126,18 +125,18 @@ export class Pipeline<T, O extends OutletPattern | undefined = undefined> {
   }
 
   /**
-   * パイプラインをリセットする
-   * @param resetData リセット時に使用するデータ。省略した場合は初期データが使用される。
-   */
-  reset(resetData?: T): void {
-    this._storeSource.next(resetData ?? this.initialData);
-  }
-
-  /**
    * パイプラインのデータを更新する
    * @param data 更新するデータ
    */
   update(data: T): void {
     this._storeSource.next(data);
+  }
+
+  /**
+   * パイプラインをリセットする
+   * @param resetData リセット時に使用するデータ。省略した場合は初期データが使用される。
+   */
+  reset(resetData?: T): void {
+    this.update(resetData ?? this.initialData);
   }
 }

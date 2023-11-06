@@ -21,8 +21,8 @@ export class AppComponent {
     this.store.update('hello');
     this.multiple()
 
-    this.pipeline = new Pipeline<string, {foo: string, bar: number}>({
-      initialData: 'hello',
+
+    this.pipeline = new Pipeline<string, {foo: string, bar: number}>('hello',{
       outlets:{
         foo: pipe(map((value: string | null) => value + ' world')),
         bar: pipe(map((value: string | null) => value?.length ?? 0))
