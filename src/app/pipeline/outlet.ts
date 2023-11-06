@@ -1,5 +1,5 @@
 import {Observable, take, tap} from "rxjs";
-import {PipelineConnectionError} from './pipeline-connection-error';
+import {PipelineConnectionError} from '../pulse-line/pipeline-connection-error';
 
 export class Outlet<T> {
 
